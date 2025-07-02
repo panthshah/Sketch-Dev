@@ -506,7 +506,7 @@ export default function(): void {
     const fills = style.fills || [];
     const borders = style.borders || [];
     const backgroundColor = fills.length && fills[0].enabled ? (typeof fills[0].color === 'string' ? fills[0].color : rgbaToHex(fills[0].color)) : '-';
-    const borderRadius = style.borderRadius ?? '-';
+    const borderRadius = style.cornerRadius ?? '-';
     const borderColor = borders.length && borders[0].enabled ? (typeof borders[0].color === 'string' ? borders[0].color : rgbaToHex(borders[0].color)) : '-';
     const borderWeight = borders.length && borders[0].enabled ? borders[0].thickness : '-';
     const height = layer.frame?.height ?? '-';
