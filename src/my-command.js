@@ -315,220 +315,236 @@ function default_1() {
     }
     const originalArtboard = selectedLayers.layers[0];
     const page = originalArtboard.parent;
-    // --- Layout constants ---
-    const sidebarWidth = 400;
-    const sidebarX = 0;
-    const sidebarY = 0;
-    const sidebarPaddingX = 48;
-    const sidebarPaddingY = 64;
-    const rowSpacing = 48;
-    const badgeSize = 40;
-    const badgeColor = '#FF6F61';
-    const nameFontSize = 22;
-    const propFontSize = 15;
-    const propSpacing = 22;
-    const accentColor = badgeColor;
-    // --- Main frame placement ---
-    const mainFrameX = sidebarWidth + 80;
-    const mainFrameY = 0;
-    const mainFrameWidth = originalArtboard.frame.width;
-    const mainFrameHeight = originalArtboard.frame.height;
-    // --- Calculate required sidebar height ---
-    const rootTree = buildLayerTree(originalArtboard, 0, '');
-    const layers = rootTree;
-    const sidebarRowsHeight = layers.length * (badgeSize + 8 + 5 * propSpacing) + (layers.length - 1) * rowSpacing;
-    const sidebarTotalHeight = sidebarPaddingY + 64 + sidebarRowsHeight + sidebarPaddingY;
-    const specsFrameHeight = Math.max(mainFrameHeight, sidebarTotalHeight);
-    // Create the new specs artboard (wide, to fit sidebar and main frame, and tall enough for all specs)
-    const specsFrame = new sketch_1.default.Artboard({
-        name: `Specs: ${originalArtboard.name}`,
-        parent: originalArtboard.parent,
-        frame: new sketch_1.default.Rectangle(originalArtboard.frame.x + originalArtboard.frame.width + 120, originalArtboard.frame.y, sidebarWidth + 80 + mainFrameWidth + 80, specsFrameHeight),
+    // --- Visual Design Constants ---
+    const highlightColor = '#00D4FF'; // Cyan color for highlights
+    const highlightOpacity = '66'; // 40% opacity in hex (66 = 102/255)
+    const numberBgColor = '#FF3366'; // Vibrant red for number badges
+    const panelBgColor = '#FFFFFF';
+    const panelBorderColor = '#E0E0E0';
+    const textPrimaryColor = '#1A1A1A';
+    const textSecondaryColor = '#666666';
+    // --- Layout Constants ---
+    const artboardSpacing = 120;
+    const panelWidth = 420;
+    const panelPadding = 32;
+    const panelItemSpacing = 24;
+    const numberBadgeSize = 32;
+    const minHighlightSize = 20; // Minimum size for small elements
+    // --- Get all visible layers in layer panel order ---
+    function getVisibleLayersInOrder(container) {
+        let layers = [];
+        // Process layers from top to bottom (as they appear in layers panel)
+        if (container.layers && Array.isArray(container.layers)) {
+            // Sketch layers are in reverse order (bottom layer is index 0)
+            // So we need to reverse to get top-to-bottom order
+            const reversedLayers = Array.from(container.layers).reverse();
+            reversedLayers.forEach((layer) => {
+                // Skip hidden layers and meaxure annotations
+                if (!layer.hidden && !layer.name.startsWith('#meaxure')) {
+                    layers.push(layer);
+                    // Recursively get nested layers
+                    if (layer.type === sketch_1.default.Types.Group ||
+                        layer.type === sketch_1.default.Types.Artboard ||
+                        layer.type === 'Frame' ||
+                        layer.type === 'SymbolInstance') {
+                        layers = layers.concat(getVisibleLayersInOrder(layer));
+                    }
+                }
+            });
+        }
+        return layers;
+    }
+    // Get all layers in proper order
+    const orderedLayers = getVisibleLayersInOrder(originalArtboard);
+    if (orderedLayers.length === 0) {
+        sketch_1.default.UI.message("No visible layers found in the selected artboard.");
+        return;
+    }
+    // --- Calculate dimensions ---
+    const anatomyArtboardWidth = originalArtboard.frame.width + panelWidth + artboardSpacing;
+    const panelItemHeight = 80; // Height for each spec item
+    const panelHeaderHeight = 120;
+    const panelContentHeight = orderedLayers.length * panelItemHeight + (orderedLayers.length - 1) * panelItemSpacing;
+    const panelTotalHeight = panelHeaderHeight + panelContentHeight + panelPadding * 2;
+    const anatomyArtboardHeight = Math.max(originalArtboard.frame.height, panelTotalHeight);
+    // --- Create the Anatomy Artboard ---
+    const anatomyArtboard = new sketch_1.default.Artboard({
+        name: `Anatomy: ${originalArtboard.name}`,
+        parent: page,
+        frame: new sketch_1.default.Rectangle(originalArtboard.frame.x + originalArtboard.frame.width + artboardSpacing, originalArtboard.frame.y, anatomyArtboardWidth, anatomyArtboardHeight),
     });
-    // --- Duplicate the original artboard/frame and its children into the specs artboard ---
-    // Place the duplicate in the main frame area
-    const duplicatedArtboard = originalArtboard.duplicate();
-    duplicatedArtboard.parent = specsFrame;
-    duplicatedArtboard.frame.x = mainFrameX;
-    duplicatedArtboard.frame.y = mainFrameY;
-    duplicatedArtboard.selected = false;
-    // Optionally, lock the duplicate to prevent accidental edits
-    duplicatedArtboard.locked = true;
-    console.log(`[Specs] Parent artboard frame: (${originalArtboard.frame.x},${originalArtboard.frame.y},${originalArtboard.frame.width},${originalArtboard.frame.height})`);
-    console.log(`[Specs] Duplicated artboard frame: (${duplicatedArtboard.frame.x},${duplicatedArtboard.frame.y},${duplicatedArtboard.frame.width},${duplicatedArtboard.frame.height})`);
-    console.log(`[Specs] Duplicated artboard layer count before: ${duplicatedArtboard.layers.length}`);
-    layers.forEach((node, idx) => {
-        const { layer } = node;
-        const rect = getAbsoluteRect(layer, originalArtboard);
-        const offsetX = rect.x - originalArtboard.frame.x;
-        const offsetY = rect.y - originalArtboard.frame.y;
-        // Smart badge placement: place badge 40px above highlight for small layers
-        let badgeX = offsetX;
-        let badgeY = offsetY;
-        const isSmall = rect.width < 40 || rect.height < 40;
-        if (isSmall) {
-            badgeX = offsetX;
-            badgeY = offsetY - 40; // 40px above highlight
-        }
-        else {
-            badgeX = offsetX + 4;
-            badgeY = offsetY + 4;
-        }
-        // Subtle fill for highlight
-        const highlightFill = { color: accentColor + '22', fillType: sketch_1.default.Style.FillType.Color, enabled: true };
-        console.log(`[Specs] Creating highlight for: ${layer.name} at (${offsetX},${offsetY},${rect.width},${rect.height})`);
-        const highlight = new sketch_1.default.Shape({
-            parent: duplicatedArtboard,
-            frame: new sketch_1.default.Rectangle(offsetX, offsetY, rect.width, rect.height),
-            style: {
-                borders: [{ color: accentColor, thickness: 2, enabled: true }],
-                fills: [highlightFill],
-            },
-        });
-        highlight.moveToFront();
-        highlight.locked = false;
-        highlight.hidden = false;
-        console.log(`[Specs] Highlight created and moved to front for: ${layer.name}`);
-        console.log(`[Specs] Highlight absolute frame: (${highlight.frame.x},${highlight.frame.y},${highlight.frame.width},${highlight.frame.height}) locked: ${highlight.locked} hidden: ${highlight.hidden}`);
-        // --- Badge stacking and margin logic ---
-        const badgeMargin = 12;
-        const badgeStackSpacing = badgeSize + 4;
-        // Keep track of previous badge positions
-        if (!globalThis._badgePositions)
-            globalThis._badgePositions = [];
-        let stackOffsetY = 0;
-        let badgeTargetX = badgeX;
-        let badgeTargetY = badgeY;
-        // Ensure margin from artboard edge
-        if (badgeTargetX < badgeMargin)
-            badgeTargetX = badgeMargin;
-        if (badgeTargetY < badgeMargin)
-            badgeTargetY = badgeMargin;
-        // Stack if overlapping with previous badges
-        globalThis._badgePositions.forEach(pos => {
-            if (Math.abs(pos.x - badgeTargetX) < badgeSize && Math.abs(pos.y - badgeTargetY) < badgeSize) {
-                stackOffsetY += badgeStackSpacing;
-            }
-        });
-        badgeTargetY += stackOffsetY;
-        globalThis._badgePositions.push({ x: badgeTargetX, y: badgeTargetY });
-        // Use drawMeasurement helper for leader line
-        if (isSmall) {
-            const x1 = badgeTargetX + badgeSize / 2;
-            const y1 = badgeTargetY + badgeSize / 2;
-            const x2 = offsetX;
-            const y2 = offsetY;
-            drawMeasurement(duplicatedArtboard, x1, y1, x2, y2, '');
-        }
-        // Numbered badge (smaller, inside or outside top-left, white border)
-        console.log(`[Specs] Creating badge for: ${layer.name} at (${badgeTargetX},${badgeTargetY})`);
-        const badgeShape = new sketch_1.default.Shape({
-            parent: duplicatedArtboard,
-            frame: new sketch_1.default.Rectangle(badgeTargetX, badgeTargetY, badgeSize, badgeSize),
-            style: {
-                fills: [{ color: accentColor, fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
-                borders: [{ color: '#FFF', thickness: 2, enabled: true }],
-            },
-        });
-        badgeShape.moveToFront();
-        badgeShape.locked = false;
-        badgeShape.hidden = false;
-        const badgeText = new sketch_1.default.Text({
-            text: `${idx + 1}`,
-            parent: duplicatedArtboard,
-            frame: new sketch_1.default.Rectangle(badgeTargetX, badgeTargetY + 1, badgeSize, badgeSize),
-            style: { fontSize: 14, textColor: '#FFF', alignment: 'center' },
-        });
-        badgeText.moveToFront();
-        badgeText.locked = false;
-        badgeText.hidden = false;
-        console.log(`[Specs] Badge created and moved to front for: ${layer.name}`);
-        console.log(`[Specs] Badge shape frame: (${badgeShape.frame.x},${badgeShape.frame.y},${badgeShape.frame.width},${badgeShape.frame.height}) locked: ${badgeShape.locked} hidden: ${badgeShape.hidden}`);
-        console.log(`[Specs] Badge text frame: (${badgeText.frame.x},${badgeText.frame.y},${badgeText.frame.width},${badgeText.frame.height}) locked: ${badgeText.locked} hidden: ${badgeText.hidden}`);
+    // --- Add white background ---
+    new sketch_1.default.Shape({
+        parent: anatomyArtboard,
+        frame: new sketch_1.default.Rectangle(0, 0, anatomyArtboardWidth, anatomyArtboardHeight),
+        style: {
+            fills: [{ color: '#FFFFFF', fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
+            borders: [],
+        },
     });
-    console.log(`[Specs] Duplicated artboard layer count after: ${duplicatedArtboard.layers.length}`);
-    // --- Sidebar: Anatomy ---
+    // --- Duplicate original artboard content ---
+    const duplicatedContent = originalArtboard.duplicate();
+    duplicatedContent.parent = anatomyArtboard;
+    duplicatedContent.frame.x = 0;
+    duplicatedContent.frame.y = 0;
+    duplicatedContent.selected = false;
+    // --- Create Specifications Panel ---
+    const panelX = originalArtboard.frame.width + artboardSpacing / 2;
+    // Panel background
+    new sketch_1.default.Shape({
+        parent: anatomyArtboard,
+        frame: new sketch_1.default.Rectangle(panelX, 0, panelWidth, anatomyArtboardHeight),
+        style: {
+            fills: [{ color: panelBgColor, fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
+            borders: [{ color: panelBorderColor, thickness: 1, enabled: true }],
+        },
+    });
+    // Panel header
     new sketch_1.default.Text({
-        text: 'Anatomy',
-        parent: specsFrame,
-        frame: new sketch_1.default.Rectangle(sidebarX + sidebarPaddingX, sidebarPaddingY, sidebarWidth - 2 * sidebarPaddingX, 48),
-        style: { fontSize: 36, textColor: '#222', alignment: 'left' },
+        text: 'Layer Specifications',
+        parent: anatomyArtboard,
+        frame: new sketch_1.default.Rectangle(panelX + panelPadding, panelPadding, panelWidth - panelPadding * 2, 40),
+        style: {
+            fontSize: 28,
+            textColor: textPrimaryColor,
+            alignment: 'left'
+        },
     });
-    let sidebarYCursor = sidebarPaddingY + 64;
-    layers.forEach((node, idx) => {
-        const { layer, depth, isStack, isFrame, isSymbol, isGroup, isGraphic } = node;
-        // Indent based on depth
-        const indent = depth * 32;
-        // Number badge (large, accent color, circle)
-        new sketch_1.default.Shape({
-            parent: specsFrame,
-            frame: new sketch_1.default.Rectangle(sidebarX + sidebarPaddingX + indent, sidebarYCursor, badgeSize, badgeSize),
+    // Subtitle
+    new sketch_1.default.Text({
+        text: `${orderedLayers.length} layers identified`,
+        parent: anatomyArtboard,
+        frame: new sketch_1.default.Rectangle(panelX + panelPadding, panelPadding + 48, panelWidth - panelPadding * 2, 24),
+        style: {
+            fontSize: 16,
+            textColor: textSecondaryColor,
+            alignment: 'left'
+        },
+    });
+    // --- Create highlights and panel entries for each layer ---
+    let panelY = panelHeaderHeight;
+    orderedLayers.forEach((layer, index) => {
+        const layerNumber = index + 1;
+        const rect = getAbsoluteRect(layer, originalArtboard);
+        // --- Create highlight overlay ---
+        const highlightGroup = new Group({
+            name: `Highlight-${layerNumber}`,
+            parent: anatomyArtboard,
+        });
+        // Ensure minimum size for tiny elements
+        let highlightWidth = Math.max(rect.width, minHighlightSize);
+        let highlightHeight = Math.max(rect.height, minHighlightSize);
+        let highlightX = rect.x;
+        let highlightY = rect.y;
+        // Center small highlights on the original element
+        if (rect.width < minHighlightSize) {
+            highlightX = rect.x - (minHighlightSize - rect.width) / 2;
+        }
+        if (rect.height < minHighlightSize) {
+            highlightY = rect.y - (minHighlightSize - rect.height) / 2;
+        }
+        // Highlight rectangle
+        const highlight = new sketch_1.default.Shape({
+            parent: highlightGroup,
+            frame: new sketch_1.default.Rectangle(highlightX, highlightY, highlightWidth, highlightHeight),
             style: {
-                fills: [{ color: accentColor, fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
+                borders: [{
+                        color: highlightColor,
+                        thickness: 2,
+                        enabled: true
+                    }],
+                fills: [{
+                        color: highlightColor + highlightOpacity,
+                        fillType: sketch_1.default.Style.FillType.Color,
+                        enabled: true
+                    }],
+            },
+        });
+        // Number badge positioned at top-left of highlight
+        const badgeX = highlightX + 8;
+        const badgeY = highlightY + 8;
+        // Badge background
+        new sketch_1.default.Shape({
+            parent: highlightGroup,
+            frame: new sketch_1.default.Rectangle(badgeX, badgeY, numberBadgeSize, numberBadgeSize),
+            style: {
+                fills: [{ color: numberBgColor, fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
+                borders: [{ color: '#FFFFFF', thickness: 2, enabled: true }],
+            },
+        });
+        // Badge number
+        new sketch_1.default.Text({
+            text: `${layerNumber}`,
+            parent: highlightGroup,
+            frame: new sketch_1.default.Rectangle(badgeX, badgeY, numberBadgeSize, numberBadgeSize),
+            style: {
+                fontSize: 16,
+                textColor: '#FFFFFF',
+                alignment: 'center'
+            },
+        });
+        // Move highlight group to front
+        highlightGroup.moveToFront();
+        // --- Create panel entry ---
+        const entryY = panelY + (index * (panelItemHeight + panelItemSpacing));
+        // Entry background (subtle hover effect simulation)
+        new sketch_1.default.Shape({
+            parent: anatomyArtboard,
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding, entryY, panelWidth - panelPadding * 2, panelItemHeight),
+            style: {
+                fills: [{ color: '#FAFAFA', fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
+                borders: [{ color: '#EEEEEE', thickness: 1, enabled: true }],
+            },
+        });
+        // Entry number badge
+        new sketch_1.default.Shape({
+            parent: anatomyArtboard,
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 12, entryY + (panelItemHeight - numberBadgeSize) / 2, numberBadgeSize, numberBadgeSize),
+            style: {
+                fills: [{ color: numberBgColor, fillType: sketch_1.default.Style.FillType.Color, enabled: true }],
                 borders: [],
             },
         });
         new sketch_1.default.Text({
-            text: `${idx + 1}`,
-            parent: specsFrame,
-            frame: new sketch_1.default.Rectangle(sidebarX + sidebarPaddingX + indent, sidebarYCursor + 2, badgeSize, badgeSize),
-            style: { fontSize: 20, textColor: '#FFF', alignment: 'center' },
+            text: `${layerNumber}`,
+            parent: anatomyArtboard,
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 12, entryY + (panelItemHeight - numberBadgeSize) / 2, numberBadgeSize, numberBadgeSize),
+            style: {
+                fontSize: 14,
+                textColor: '#FFFFFF',
+                alignment: 'center'
+            },
         });
-        // Name (large, bold, with type label)
-        let typeLabel = isStack ? 'Stack' : isFrame ? 'Frame' : isSymbol ? 'Symbol' : isGroup ? 'Group' : isGraphic ? 'Graphic' : layer.type;
+        // Layer name
         new sketch_1.default.Text({
-            text: `${layer.name} (${typeLabel})`,
-            parent: specsFrame,
-            frame: new sketch_1.default.Rectangle(sidebarX + sidebarPaddingX + badgeSize + 24 + indent, sidebarYCursor, sidebarWidth - sidebarPaddingX - badgeSize - 24 - indent, badgeSize),
-            style: { fontSize: nameFontSize, textColor: '#222', alignment: 'left' },
+            text: layer.name,
+            parent: anatomyArtboard,
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, entryY + 12, panelWidth - panelPadding * 2 - 72, 24),
+            style: {
+                fontSize: 16,
+                textColor: textPrimaryColor,
+                alignment: 'left'
+            },
         });
-        // Properties (spaced out, left-aligned)
-        let propY = sidebarYCursor + badgeSize + 8;
-        const style = layer.style || {};
-        const fills = style.fills || [];
-        const borders = style.borders || [];
-        const backgroundColor = fills.length && fills[0].enabled ? (typeof fills[0].color === 'string' ? fills[0].color : rgbaToHex(fills[0].color)) : '-';
-        const borderRadius = style.borderRadius ?? '-';
-        const borderColor = borders.length && borders[0].enabled ? (typeof borders[0].color === 'string' ? borders[0].color : rgbaToHex(borders[0].color)) : '-';
-        const borderWeight = borders.length && borders[0].enabled ? borders[0].thickness : '-';
-        const height = layer.frame?.height ?? '-';
-        const width = layer.frame?.width ?? '-';
-        // Text properties
-        const fontFamily = style.fontFamily ?? (layer.style?.fontFamily ?? '-');
-        const fontWeight = style.fontWeight ?? (layer.style?.fontWeight ?? '-');
-        const fontSize = style.fontSize ?? (layer.style?.fontSize ?? '-');
-        const textAlign = style.alignment ?? (layer.style?.alignment ?? '-');
-        const textColor = style.textColor ? (typeof style.textColor === 'string' ? style.textColor : rgbaToHex(style.textColor)) : '-';
-        function prop(label, value) {
-            new sketch_1.default.Text({
-                text: `${label}: ${value}`,
-                parent: specsFrame,
-                frame: new sketch_1.default.Rectangle(sidebarX + sidebarPaddingX + badgeSize + 24 + indent, propY, sidebarWidth - sidebarPaddingX - badgeSize - 24 - indent, propFontSize + 8),
-                style: { fontSize: propFontSize, textColor: '#444', alignment: 'left' },
-            });
-            propY += propSpacing;
-        }
-        prop('Height', height);
-        prop('Width', width);
-        prop('Background', backgroundColor);
-        prop('Border Radius', borderRadius);
-        prop('Border Color', borderColor);
-        prop('Border Weight', borderWeight);
-        if (layer.type === sketch_1.default.Types.Text) {
-            prop('Font Family', fontFamily);
-            prop('Font Weight', fontWeight);
-            prop('Font Size', fontSize);
-            prop('Text Align', textAlign);
-            prop('Text Color', textColor);
-        }
-        // Stack properties
-        if (isStack && layer.layout) {
-            prop('Stack Direction', layer.layout.direction ?? '-');
-            prop('Stack Alignment', layer.layout.alignment ?? '-');
-            prop('Stack Spacing', layer.layout.spacing ?? '-');
-            prop('Stack Padding', layer.layout.padding ?? '-');
-        }
-        sidebarYCursor = propY + rowSpacing;
+        // Layer type and dimensions
+        const typeLabel = layer.type.replace('MSLayer', '').replace('Group', 'Group');
+        const dimensions = `${Math.round(rect.width)} × ${Math.round(rect.height)}`;
+        new sketch_1.default.Text({
+            text: `${typeLabel} • ${dimensions}`,
+            parent: anatomyArtboard,
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, entryY + 40, panelWidth - panelPadding * 2 - 72, 20),
+            style: {
+                fontSize: 14,
+                textColor: textSecondaryColor,
+                alignment: 'left'
+            },
+        });
     });
-    sketch_1.default.UI.message("Specs Frame created! Sidebar ready for details.");
+    // Clean up any temporary data
+    if (globalThis._badgePositions) {
+        delete globalThis._badgePositions;
+    }
+    // Select the new anatomy artboard
+    anatomyArtboard.selected = true;
+    sketch_1.default.UI.message(`✓ Anatomy specs generated for ${orderedLayers.length} layers`);
 }
