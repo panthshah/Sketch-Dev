@@ -362,7 +362,7 @@ function default_1() {
     }
     // --- Calculate dimensions ---
     const anatomyArtboardWidth = originalArtboard.frame.width + panelWidth + artboardSpacing;
-    const panelItemHeight = 80; // Height for each spec item
+    const panelItemHeight = 160; // Height for each spec item (increased for more specs)
     const panelHeaderHeight = 120;
     const panelContentHeight = orderedLayers.length * panelItemHeight + (orderedLayers.length - 1) * panelItemSpacing;
     const panelTotalHeight = panelHeaderHeight + panelContentHeight + panelPadding * 2;
@@ -431,17 +431,21 @@ function default_1() {
             name: `Highlight-${layerNumber}`,
             parent: anatomyArtboard,
         });
+        // Calculate position relative to the duplicated content (which starts at 0,0)
+        // Subtract the original artboard position to get relative coordinates
+        const relativeX = rect.x - originalArtboard.frame.x;
+        const relativeY = rect.y - originalArtboard.frame.y;
         // Ensure minimum size for tiny elements
         let highlightWidth = Math.max(rect.width, minHighlightSize);
         let highlightHeight = Math.max(rect.height, minHighlightSize);
-        let highlightX = rect.x;
-        let highlightY = rect.y;
+        let highlightX = relativeX;
+        let highlightY = relativeY;
         // Center small highlights on the original element
         if (rect.width < minHighlightSize) {
-            highlightX = rect.x - (minHighlightSize - rect.width) / 2;
+            highlightX = relativeX - (minHighlightSize - rect.width) / 2;
         }
         if (rect.height < minHighlightSize) {
-            highlightY = rect.y - (minHighlightSize - rect.height) / 2;
+            highlightY = relativeY - (minHighlightSize - rect.height) / 2;
         }
         // Highlight rectangle
         const highlight = new sketch_1.default.Shape({
@@ -462,7 +466,7 @@ function default_1() {
         });
         // Number badge positioned at top-left of highlight
         const badgeX = highlightX + 8;
-        const badgeY = highlightY + 8;
+        const badgeY = highlightY; // Align to top edge for consistency
         // Badge background
         new sketch_1.default.Shape({
             parent: highlightGroup,
@@ -483,8 +487,10 @@ function default_1() {
                 alignment: 'center'
             },
         });
-        // Move highlight group to front
+        // Move highlight group to front and ensure it's visible
         highlightGroup.moveToFront();
+        highlightGroup.locked = false;
+        highlightGroup.hidden = false;
         // --- Create panel entry ---
         const entryY = panelY + (index * (panelItemHeight + panelItemSpacing));
         // Entry background (subtle hover effect simulation)
@@ -519,7 +525,7 @@ function default_1() {
         new sketch_1.default.Text({
             text: layer.name,
             parent: anatomyArtboard,
-            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, entryY + 12, panelWidth - panelPadding * 2 - 72, 24),
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, entryY + 8, panelWidth - panelPadding * 2 - 72, 20),
             style: {
                 fontSize: 16,
                 textColor: textPrimaryColor,
@@ -532,13 +538,207 @@ function default_1() {
         new sketch_1.default.Text({
             text: `${typeLabel} • ${dimensions}`,
             parent: anatomyArtboard,
-            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, entryY + 40, panelWidth - panelPadding * 2 - 72, 20),
+            frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, entryY + 28, panelWidth - panelPadding * 2 - 72, 16),
             style: {
-                fontSize: 14,
+                fontSize: 12,
                 textColor: textSecondaryColor,
                 alignment: 'left'
             },
         });
+        // Extract detailed specifications
+        const style = layer.style || {};
+        const fills = style.fills || [];
+        const borders = style.borders || [];
+        const shadows = style.shadows || [];
+        // Background Color
+        const backgroundColor = fills.length && fills[0].enabled ?
+            (typeof fills[0].color === 'string' ? fills[0].color : rgbaToHex(fills[0].color)) :
+            'None';
+        // Border properties
+        const borderColor = borders.length && borders[0].enabled ?
+            (typeof borders[0].color === 'string' ? borders[0].color : rgbaToHex(borders[0].color)) :
+            'None';
+        const borderWidth = borders.length && borders[0].enabled ? `${borders[0].thickness}px` : 'None';
+        // Corner radius - check multiple possible properties including smart layout frames
+        let borderRadius = '0px';
+        // Try Sketch object corner radius first (most reliable from logs)
+        if (layer.sketchObject && layer.sketchObject.cornerRadius) {
+            try {
+                const radius = layer.sketchObject.cornerRadius();
+                if (radius > 0) {
+                    borderRadius = `${radius}px`;
+                }
+            }
+            catch (e) {
+                // Corner radius method doesn't exist or failed
+            }
+        }
+        // If no radius found yet, try other methods
+        if (borderRadius === '0px') {
+            if (style.borderRadius !== undefined && style.borderRadius > 0) {
+                borderRadius = `${style.borderRadius}px`;
+            }
+            else if (layer.style?.borderRadius !== undefined && layer.style.borderRadius > 0) {
+                borderRadius = `${layer.style.borderRadius}px`;
+            }
+            else if (layer.cornerRadius !== undefined && layer.cornerRadius > 0) {
+                borderRadius = `${layer.cornerRadius}px`;
+            }
+            else if (layer.fixedRadius !== undefined && layer.fixedRadius > 0) {
+                borderRadius = `${layer.fixedRadius}px`;
+            }
+            else if (layer.points && layer.points.length > 0 && layer.points[0].cornerRadius !== undefined && layer.points[0].cornerRadius > 0) {
+                borderRadius = `${layer.points[0].cornerRadius}px`;
+            }
+        }
+        // For Smart Layout stacks (MSLayerGroup), try additional methods
+        if (borderRadius === '0px' && layer.sketchObject && layer.sketchObject.className() === 'MSLayerGroup') {
+            try {
+                // Check if it's a smart layout with background layer
+                if (layer.sketchObject.hasBackgroundColor && layer.sketchObject.hasBackgroundColor()) {
+                    // Smart layouts might store radius in style
+                    const style = layer.sketchObject.style();
+                    if (style && style.contextSettings && style.contextSettings()) {
+                        const contextSettings = style.contextSettings();
+                        if (contextSettings.borderRadius) {
+                            const radius = contextSettings.borderRadius();
+                            if (radius > 0) {
+                                borderRadius = `${radius}px`;
+                            }
+                        }
+                    }
+                }
+                // Check background layers for radius
+                if (layer.sketchObject.layers && layer.sketchObject.layers()) {
+                    const layers = layer.sketchObject.layers();
+                    for (let i = 0; i < layers.count(); i++) {
+                        const childLayer = layers.objectAtIndex(i);
+                        if (childLayer.cornerRadius && childLayer.cornerRadius() > 0) {
+                            borderRadius = `${childLayer.cornerRadius()}px`;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (e) {
+                // Smart layout radius detection failed
+            }
+        }
+        // Opacity
+        const opacity = layer.style?.opacity !== undefined ? `${Math.round(layer.style.opacity * 100)}%` : '100%';
+        // Shadow
+        const shadowInfo = shadows.length && shadows[0].enabled ?
+            `${shadows[0].x}px ${shadows[0].y}px ${shadows[0].blur}px ${shadows[0].color || '#000'}` :
+            'None';
+        let specY = entryY + 48;
+        const specLineHeight = 14;
+        // Create specification lines
+        function addSpecLine(label, value, yOffset) {
+            new sketch_1.default.Text({
+                text: `${label}: ${value}`,
+                parent: anatomyArtboard,
+                frame: new sketch_1.default.Rectangle(panelX + panelPadding + 60, specY + yOffset, panelWidth - panelPadding * 2 - 72, 12),
+                style: {
+                    fontSize: 10,
+                    textColor: textSecondaryColor,
+                    alignment: 'left'
+                },
+            });
+        }
+        // Add specifications based on layer type
+        if (layer.type === sketch_1.default.Types.Text) {
+            // Text-specific properties
+            const textStyle = layer.style || {};
+            const fontFamily = textStyle.fontFamily || layer.fontFamily || 'Unknown';
+            const fontSize = textStyle.fontSize || layer.fontSize || 'Unknown';
+            // Get actual font style name (e.g. "Bold", "Medium Italic", "Light")
+            let fontWeight = 'Regular';
+            // First try to get the actual font style name from Sketch object (most reliable)
+            if (layer.sketchObject && layer.sketchObject.font && layer.sketchObject.font()) {
+                const font = layer.sketchObject.font();
+                if (font.displayName && font.displayName()) {
+                    // Extract style from display name (e.g., "SF Pro Medium Italic" -> "Medium Italic")
+                    const displayName = font.displayName();
+                    const familyName = font.familyName ? font.familyName() : '';
+                    if (familyName && displayName.startsWith(familyName)) {
+                        fontWeight = displayName.substring(familyName.length).trim();
+                        if (!fontWeight)
+                            fontWeight = 'Regular';
+                    }
+                    else {
+                        fontWeight = displayName;
+                    }
+                }
+                else if (font.fontName && font.fontName()) {
+                    // Extract style from font name (e.g., "SFPro-MediumItalic" -> "MediumItalic")
+                    const fontName = font.fontName();
+                    const parts = fontName.split('-');
+                    if (parts.length > 1) {
+                        fontWeight = parts[parts.length - 1];
+                    }
+                }
+            }
+            // Fallback to numeric weight if no style name found
+            if (fontWeight === 'Regular') {
+                let numericWeight = undefined;
+                if (textStyle.fontWeight !== undefined) {
+                    numericWeight = textStyle.fontWeight;
+                }
+                else if (layer.fontWeight !== undefined) {
+                    numericWeight = layer.fontWeight;
+                }
+                else if (layer.font && layer.font.fontWeight !== undefined) {
+                    numericWeight = layer.font.fontWeight;
+                }
+                if (numericWeight !== undefined) {
+                    if (typeof numericWeight === 'number') {
+                        const weightMap = {
+                            100: 'Thin',
+                            200: 'ExtraLight',
+                            300: 'Light',
+                            400: 'Regular',
+                            500: 'Medium',
+                            600: 'SemiBold',
+                            700: 'Bold',
+                            800: 'ExtraBold',
+                            900: 'Black'
+                        };
+                        fontWeight = weightMap[numericWeight] || `${numericWeight}`;
+                    }
+                    else {
+                        fontWeight = `${numericWeight}`;
+                    }
+                }
+            }
+            const textColor = textStyle.textColor ?
+                (typeof textStyle.textColor === 'string' ? textStyle.textColor : rgbaToHex(textStyle.textColor)) :
+                textPrimaryColor;
+            const lineHeight = textStyle.lineHeight || layer.lineHeight || 'Auto';
+            const textAlign = textStyle.alignment || layer.alignment || 'Left';
+            addSpecLine('Font', `${fontFamily}`, 0);
+            addSpecLine('Weight', `${fontWeight}`, specLineHeight);
+            addSpecLine('Size', `${fontSize}px`, specLineHeight * 2);
+            addSpecLine('Color', textColor, specLineHeight * 3);
+            addSpecLine('Line Height', `${lineHeight}`, specLineHeight * 4);
+            addSpecLine('Align', textAlign, specLineHeight * 5);
+            if (opacity !== '100%')
+                addSpecLine('Opacity', opacity, specLineHeight * 6);
+        }
+        else {
+            // Shape/Group properties
+            addSpecLine('Background', backgroundColor, 0);
+            if (borderColor !== 'None') {
+                addSpecLine('Border', `${borderWidth} ${borderColor}`, specLineHeight);
+                addSpecLine('Radius', borderRadius, specLineHeight * 2);
+            }
+            else {
+                addSpecLine('Radius', borderRadius, specLineHeight);
+            }
+            if (opacity !== '100%')
+                addSpecLine('Opacity', opacity, specLineHeight * (borderColor !== 'None' ? 3 : 2));
+            if (shadowInfo !== 'None')
+                addSpecLine('Shadow', shadowInfo, specLineHeight * (borderColor !== 'None' ? 4 : 3));
+        }
     });
     // Clean up any temporary data
     if (globalThis._badgePositions) {
