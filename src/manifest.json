@@ -1,6 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/sketch-hq/SketchAPI/develop/docs/sketch-plugin-manifest-schema.json",
   "icon": "icon.png",
+  "version": "0.2.0",
   "commands": [
     {
       "name": "Generate Specs",
