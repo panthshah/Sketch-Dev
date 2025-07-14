@@ -182,7 +182,7 @@ function drawLayoutSpecs(artboard, specsGroup) {
     const colorText = '#1E90FF';
     // Draw bounding boxes and dimension labels
     layers.forEach((layer, idx) => {
-        // Annotating layer
+        console.log(`Annotating layer: ${layer.name} (${layer.type})`);
         const rect = getAbsoluteRect(layer, artboard);
         // Bounding box
         new sketch_1.default.Shape({
@@ -422,7 +422,7 @@ function default_1() {
             });
         }
         catch (error) {
-            // Warning: Could not access Symbol Master layers
+            console.log(`Warning: Could not access Symbol Master layers for ${symbolInstance.name}:`, error);
         }
         return mappedLayers;
     }

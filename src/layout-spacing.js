@@ -79,6 +79,331 @@ function isStackLayer(layer) {
     return false;
 }
 
+// NEW: Function to detect if a layer is inside a stack layout
+function findParentStack(layer) {
+    console.log(`Looking for parent stack of: ${layer.name} (${layer.type})`);
+    let currentLayer = layer;
+    
+    // Traverse up the parent chain looking for a stack
+    while (currentLayer && currentLayer.parent) {
+        const parent = currentLayer.parent;
+        console.log(`  Checking parent: ${parent.name || 'Unnamed'} (${parent.type})`);
+        
+        // Skip artboard - we don't want to consider artboard as a stack
+        if (parent.type === sketch.Types.Artboard) {
+            console.log(`  -> Reached artboard, stopping search`);
+            break;
+        }
+        
+        if (isStackLayer(parent)) {
+            console.log(`  -> Found parent stack: ${parent.name}`);
+            return parent;
+        }
+        
+        currentLayer = parent;
+    }
+    
+    console.log(`  -> No parent stack found`);
+    return null;
+}
+
+// NEW: Function to get siblings of a layer within a stack
+function getStackSiblings(layer, parentStack) {
+    if (!parentStack || !parentStack.layers) {
+        console.log('No parent stack or layers found');
+        return [];
+    }
+    
+    // Get all content children (excluding backgrounds)
+    const contentChildren = parentStack.layers.filter(child => {
+        // Keep text layers and other content
+        if (child.type === sketch.Types.Text) return true;
+        if (child.type === sketch.Types.Group) return true;
+        if (child.type === sketch.Types.Image) return true;
+        if (child.type === 'SymbolInstance') return true;
+        
+        // For Shape layers, exclude if they seem to be backgrounds
+        if (child.type === sketch.Types.Shape) {
+            const sizeRatio = (child.frame.width * child.frame.height) / (parentStack.frame.width * parentStack.frame.height);
+            if (sizeRatio > 0.8) {
+                return false; // Likely a background
+            }
+        }
+        
+        return true;
+    });
+    
+    return contentChildren;
+}
+
+// NEW: Function to calculate spacing between siblings in a stack
+function calculateSiblingSpacing(focusedLayer, parentStack) {
+    const siblings = getStackSiblings(focusedLayer, parentStack);
+    const stackProps = getStackProperties(parentStack);
+    
+    if (!stackProps || siblings.length < 2) {
+        return null;
+    }
+    
+    // Sort siblings by position based on stack direction
+    const sortedSiblings = siblings.slice().sort((a, b) => {
+        if (stackProps.direction === 'horizontal') {
+            return a.frame.x - b.frame.x;
+        } else {
+            return a.frame.y - b.frame.y;
+        }
+    });
+    
+    // Find the focused layer's position in the sorted list
+    const focusedIndex = sortedSiblings.findIndex(sibling => sibling.name === focusedLayer.name && sibling.type === focusedLayer.type);
+    
+    if (focusedIndex === -1) {
+        return null;
+    }
+    
+    const spacing = {};
+    
+    // Calculate spacing to previous sibling
+    if (focusedIndex > 0) {
+        const prevSibling = sortedSiblings[focusedIndex - 1];
+        const focusedRect = getAbsoluteRect(focusedLayer, parentStack);
+        const prevRect = getAbsoluteRect(prevSibling, parentStack);
+        
+        if (stackProps.direction === 'horizontal') {
+            spacing.previous = {
+                distance: focusedRect.x - (prevRect.x + prevRect.width),
+                direction: 'left',
+                targetName: prevSibling.name,
+                targetLayer: prevSibling
+            };
+        } else {
+            spacing.previous = {
+                distance: focusedRect.y - (prevRect.y + prevRect.height),
+                direction: 'top',
+                targetName: prevSibling.name,
+                targetLayer: prevSibling
+            };
+        }
+    }
+    
+    // Calculate spacing to next sibling
+    if (focusedIndex < sortedSiblings.length - 1) {
+        const nextSibling = sortedSiblings[focusedIndex + 1];
+        const focusedRect = getAbsoluteRect(focusedLayer, parentStack);
+        const nextRect = getAbsoluteRect(nextSibling, parentStack);
+        
+        if (stackProps.direction === 'horizontal') {
+            spacing.next = {
+                distance: nextRect.x - (focusedRect.x + focusedRect.width),
+                direction: 'right',
+                targetName: nextSibling.name,
+                targetLayer: nextSibling
+            };
+        } else {
+            spacing.next = {
+                distance: nextRect.y - (focusedRect.y + focusedRect.height),
+                direction: 'bottom',
+                targetName: nextSibling.name,
+                targetLayer: nextSibling
+            };
+        }
+    }
+    
+    return {
+        parentStackName: parentStack.name,
+        stackDirection: stackProps.direction,
+        totalSiblings: siblings.length,
+        focusedIndex: focusedIndex,
+        spacing: spacing
+    };
+}
+
+// NEW: Function to draw sibling spacing measurements
+function drawSiblingSpacing(measurementsGroup, focusedLayer, parentStack, originalArtboard) {
+    const siblingInfo = calculateSiblingSpacing(focusedLayer, parentStack);
+    
+    if (!siblingInfo) {
+        return;
+    }
+    
+    const focusedRect = getAbsoluteRect(focusedLayer, originalArtboard);
+    const lineColor = '#00FF00'; // Bright green for sibling spacing
+    const lineThickness = 2; // Clean, simple line
+    
+    // Draw spacing to previous sibling
+    if (siblingInfo.spacing.previous) {
+        const spacing = siblingInfo.spacing.previous;
+        const targetRect = getAbsoluteRect(spacing.targetLayer, originalArtboard);
+        const distance = Math.round(spacing.distance);
+        
+        // FIXED: Use absolute coordinates for the duplicated artboard
+        // Since the duplicated content is at (0,0) in the new artboard, we use coordinates directly
+        const focusedX = focusedRect.x;
+        const focusedY = focusedRect.y;
+        const targetX = targetRect.x;
+        const targetY = targetRect.y;
+        
+        let lineX1, lineY1, lineX2, lineY2, textX, textY;
+        
+        if (spacing.direction === 'left') {
+            // Horizontal spacing (previous sibling to the left) - simple line between elements
+            lineX1 = targetX + targetRect.width;
+            lineY1 = targetY + targetRect.height / 2;
+            lineX2 = focusedX;
+            lineY2 = lineY1;
+            textX = lineX1 + distance / 2;
+            textY = lineY1 - 8;
+        } else {
+            // Vertical spacing (previous sibling above) - simple line between elements
+            lineX1 = targetX + targetRect.width / 2;
+            lineY1 = targetY + targetRect.height;
+            lineX2 = lineX1;
+            lineY2 = focusedY;
+            textX = lineX1 + 8; // Small offset to the right
+            textY = lineY1 + distance / 2;
+        }
+        
+        console.log(`Drawing line to previous sibling: ${spacing.targetLayer.name}`);
+        console.log(`Using coordinates directly: focused(${focusedX},${focusedY}), target(${targetX},${targetY})`);
+        console.log(`Line coordinates: (${lineX1},${lineY1}) to (${lineX2},${lineY2}), distance: ${distance}px`);
+        
+        // Draw the spacing line
+        if (distance > 0) {
+            // For vertical lines, we need proper width/height
+            let lineWidth, lineHeight;
+            if (lineX1 === lineX2) {
+                // Vertical line
+                lineWidth = lineThickness;
+                lineHeight = Math.abs(lineY2 - lineY1);
+            } else {
+                // Horizontal line
+                lineWidth = Math.abs(lineX2 - lineX1);
+                lineHeight = lineThickness;
+            }
+            
+            const rectX = Math.min(lineX1, lineX2) - (lineX1 === lineX2 ? lineThickness/2 : 0);
+            const rectY = Math.min(lineY1, lineY2) - (lineY1 === lineY2 ? lineThickness/2 : 0);
+            
+            console.log(`Creating shape: x=${rectX}, y=${rectY}, width=${lineWidth}, height=${lineHeight}`);
+            
+            // SOLUTION: Create measurement directly at artboard level instead of in a group
+            const measurementLine = new sketch.Shape({
+                parent: measurementsGroup.parent, // Use artboard as parent instead of measurementsGroup
+                frame: new sketch.Rectangle(rectX, rectY, lineWidth, lineHeight),
+                style: {
+                    fills: [{ color: lineColor, fillType: sketch.Style.FillType.Color, enabled: true }],
+                    borders: [],
+                },
+            });
+            
+            console.log(`DEBUG: Line created at actual frame: x=${measurementLine.frame.x}, y=${measurementLine.frame.y}, width=${measurementLine.frame.width}, height=${measurementLine.frame.height}`);
+            
+            // Move to front to ensure visibility
+            measurementLine.moveToFront();
+            
+            // Draw distance label at artboard level
+            const distanceLabel1 = new sketch.Text({
+                text: `${distance}px`,
+                parent: measurementsGroup.parent, // Use artboard as parent instead of measurementsGroup
+                frame: new sketch.Rectangle(textX - 15, textY - 6, 30, 12),
+                style: {
+                    fontSize: 10,
+                    textColor: lineColor,
+                    alignment: 'center'
+                },
+            });
+            
+            console.log(`DEBUG: Distance label created at: x=${distanceLabel1.frame.x}, y=${distanceLabel1.frame.y}, width=${distanceLabel1.frame.width}, height=${distanceLabel1.frame.height}`);
+            
+            // Move to front to ensure visibility
+            distanceLabel1.moveToFront();
+        }
+    }
+    
+    // Draw spacing to next sibling
+    if (siblingInfo.spacing.next) {
+        const spacing = siblingInfo.spacing.next;
+        const targetRect = getAbsoluteRect(spacing.targetLayer, originalArtboard);
+        const distance = Math.round(spacing.distance);
+        
+        // FIXED: Use absolute coordinates for the duplicated artboard
+        const focusedX = focusedRect.x;
+        const focusedY = focusedRect.y;
+        const targetX = targetRect.x;
+        const targetY = targetRect.y;
+        
+        let lineX1, lineY1, lineX2, lineY2, textX, textY;
+        
+        if (spacing.direction === 'right') {
+            // Horizontal spacing (next sibling to the right) - simple line between elements
+            lineX1 = focusedX + focusedRect.width;
+            lineY1 = focusedY + focusedRect.height / 2;
+            lineX2 = targetX;
+            lineY2 = lineY1;
+            textX = lineX1 + distance / 2;
+            textY = lineY1 - 8;
+        } else {
+            // Vertical spacing (next sibling below) - simple line between elements
+            lineX1 = focusedX + focusedRect.width / 2;
+            lineY1 = focusedY + focusedRect.height;
+            lineX2 = lineX1;
+            lineY2 = targetY;
+            textX = lineX1 + 8; // Small offset to the right
+            textY = lineY1 + distance / 2;
+        }
+        
+        // Draw the spacing line
+        if (distance > 0) {
+            // For vertical lines, we need proper width/height
+            let lineWidth, lineHeight;
+            if (lineX1 === lineX2) {
+                // Vertical line
+                lineWidth = lineThickness;
+                lineHeight = Math.abs(lineY2 - lineY1);
+            } else {
+                // Horizontal line
+                lineWidth = Math.abs(lineX2 - lineX1);
+                lineHeight = lineThickness;
+            }
+            
+            // SOLUTION: Create measurement directly at artboard level instead of in a group
+            const measurementLine2 = new sketch.Shape({
+                parent: measurementsGroup.parent, // Use artboard as parent instead of measurementsGroup
+                frame: new sketch.Rectangle(
+                    Math.min(lineX1, lineX2) - (lineX1 === lineX2 ? lineThickness/2 : 0),
+                    Math.min(lineY1, lineY2) - (lineY1 === lineY2 ? lineThickness/2 : 0),
+                    lineWidth,
+                    lineHeight
+                ),
+                style: {
+                    fills: [{ color: lineColor, fillType: sketch.Style.FillType.Color, enabled: true }],
+                    borders: [],
+                },
+            });
+            
+            // Move to front to ensure visibility
+            measurementLine2.moveToFront();
+            
+            // Draw distance label at artboard level
+            const distanceLabel2 = new sketch.Text({
+                text: `${distance}px`,
+                parent: measurementsGroup.parent, // Use artboard as parent instead of measurementsGroup
+                frame: new sketch.Rectangle(textX - 15, textY - 6, 30, 12),
+                style: {
+                    fontSize: 10,
+                    textColor: lineColor,
+                    alignment: 'center'
+                },
+            });
+            
+            // Move to front to ensure visibility
+            distanceLabel2.moveToFront();
+        }
+    }
+    
+    return siblingInfo;
+}
+
 // Function to get tight content bounds for a layer
 function getTightContentBounds(layer) {
     // For text layers, calculate actual text bounds
@@ -487,7 +812,7 @@ function generateFocusedLayerSpecs(focusedLayer, allLayers, originalArtboard) {
 }
 
 // Draw Stack specifications panel with beautiful design
-function drawStackSpecificationsPanel(artboard, stackLayers, originalArtboard, debugMode = false, focusedLayer = null) {
+function drawStackSpecificationsPanel(artboard, stackLayers, originalArtboard, debugMode = false, focusedLayer = null, siblingInfo = null) {
     const panelWidth = 360;
     const panelHeight = 320;
     const panelX = originalArtboard.frame.width + 60;
@@ -666,6 +991,117 @@ function drawStackSpecificationsPanel(artboard, stackLayers, originalArtboard, d
                 });
             });
             
+            // Add sibling spacing information if available
+            if (siblingInfo && focusedLayer) {
+                propY += 80; // Space after padding grid
+                
+                // Sibling spacing section header
+                new sketch.Text({
+                    text: '🔗 Sibling Spacing',
+                    parent: artboard,
+                    frame: new sketch.Rectangle(panelX + 40, propY, 150, 16),
+                    style: {
+                        fontSize: 12,
+                        fontWeight: 500,
+                        textColor: '#495057',
+                        alignment: 'left'
+                    },
+                });
+                propY += 24;
+                
+                // Stack info
+                new sketch.Text({
+                    text: `In "${siblingInfo.parentStackName}" (${siblingInfo.stackDirection})`,
+                    parent: artboard,
+                    frame: new sketch.Rectangle(panelX + 40, propY, panelWidth - 80, 14),
+                    style: {
+                        fontSize: 11,
+                        textColor: '#6C757D',
+                        alignment: 'left'
+                    },
+                });
+                propY += 20;
+                
+                // Position info
+                new sketch.Text({
+                    text: `Position: ${siblingInfo.focusedIndex + 1} of ${siblingInfo.totalSiblings}`,
+                    parent: artboard,
+                    frame: new sketch.Rectangle(panelX + 40, propY, panelWidth - 80, 14),
+                    style: {
+                        fontSize: 11,
+                        textColor: '#6C757D',
+                        alignment: 'left'
+                    },
+                });
+                propY += 24;
+                
+                // Spacing to previous sibling
+                if (siblingInfo.spacing.previous) {
+                    new sketch.Text({
+                        text: `← ${siblingInfo.spacing.previous.targetName}`,
+                        parent: artboard,
+                        frame: new sketch.Rectangle(panelX + 40, propY, 120, 14),
+                        style: {
+                            fontSize: 11,
+                            textColor: '#6C757D',
+                            alignment: 'left'
+                        },
+                    });
+                    
+                    new sketch.Text({
+                        text: `${siblingInfo.spacing.previous.distance}px`,
+                        parent: artboard,
+                        frame: new sketch.Rectangle(panelX + 160, propY, 50, 14),
+                        style: {
+                            fontSize: 11,
+                            fontWeight: 500,
+                            textColor: '#00AA00',
+                            alignment: 'left'
+                        },
+                    });
+                    propY += 20;
+                }
+                
+                // Spacing to next sibling
+                if (siblingInfo.spacing.next) {
+                    new sketch.Text({
+                        text: `→ ${siblingInfo.spacing.next.targetName}`,
+                        parent: artboard,
+                        frame: new sketch.Rectangle(panelX + 40, propY, 120, 14),
+                        style: {
+                            fontSize: 11,
+                            textColor: '#6C757D',
+                            alignment: 'left'
+                        },
+                    });
+                    
+                    new sketch.Text({
+                        text: `${siblingInfo.spacing.next.distance}px`,
+                        parent: artboard,
+                        frame: new sketch.Rectangle(panelX + 160, propY, 50, 14),
+                        style: {
+                            fontSize: 11,
+                            fontWeight: 500,
+                            textColor: '#00AA00',
+                            alignment: 'left'
+                        },
+                    });
+                    propY += 20;
+                }
+                
+                // Note about green lines
+                new sketch.Text({
+                    text: '📍 Green lines show sibling spacing',
+                    parent: artboard,
+                    frame: new sketch.Rectangle(panelX + 40, propY, panelWidth - 80, 14),
+                    style: {
+                        fontSize: 10,
+                        textColor: '#00AA00',
+                        alignment: 'left'
+                    },
+                });
+            }
+            
             entryY += 200; // Space between entries
         }
     });
@@ -734,25 +1170,100 @@ function createLayoutSpacingSpecs(originalArtboard, focusedLayer = null) {
     duplicatedContent.frame.y = 0;
     duplicatedContent.selected = false;
     
+    // Initialize siblingInfo for use in panel
+    let siblingInfo = null;
+    
     // Draw spacing measurements if focused layer is provided
     if (focusedLayer) {
+        // Create measurements group at the top level, completely separate from any layout influence
         const measurementsGroup = new sketch.Group({
             name: 'Spacing Measurements',
             parent: spacingArtboard,
         });
         
+        // Move the measurements group to the front and ensure it's not affected by any layout
+        measurementsGroup.moveToFront();
+        measurementsGroup.locked = false;
+        
+        // CRITICAL: Apply absolute positioning constraints to the measurements group itself
+        // This prevents Stack Layout from repositioning the entire group
+        
+        // SOLUTION: Set "ignore stack layout" programmatically 
+        if (measurementsGroup.sketchObject) {
+            // Try different possible property names for "ignore stack layout"
+            if (measurementsGroup.sketchObject.setIsIgnoredForStackLayout) {
+                measurementsGroup.sketchObject.setIsIgnoredForStackLayout(true);
+                console.log(`DEBUG: Set isIgnoredForStackLayout to true`);
+            } else if (measurementsGroup.sketchObject.setIgnoreStackLayout) {
+                measurementsGroup.sketchObject.setIgnoreStackLayout(true);
+                console.log(`DEBUG: Set ignoreStackLayout to true`);
+            } else if (measurementsGroup.sketchObject.setIsExcludedFromLayout) {
+                measurementsGroup.sketchObject.setIsExcludedFromLayout(true);
+                console.log(`DEBUG: Set isExcludedFromLayout to true`);
+            } else if (measurementsGroup.sketchObject.setExcludeFromLayout) {
+                measurementsGroup.sketchObject.setExcludeFromLayout(true);
+                console.log(`DEBUG: Set excludeFromLayout to true`);
+            } else {
+                console.log(`DEBUG: Could not find ignore stack layout property`);
+            }
+        }
+        
+        if (measurementsGroup.sketchObject && measurementsGroup.sketchObject.setConstrainProportions) {
+            measurementsGroup.sketchObject.setConstrainProportions(false);
+        }
+        if (measurementsGroup.sketchObject && measurementsGroup.sketchObject.hasFixedLeft) {
+            measurementsGroup.sketchObject.setHasFixedLeft(true);
+            measurementsGroup.sketchObject.setHasFixedTop(true);
+            measurementsGroup.sketchObject.setHasFixedRight(false);
+            measurementsGroup.sketchObject.setHasFixedBottom(false);
+            measurementsGroup.sketchObject.setHasFixedWidth(true);
+            measurementsGroup.sketchObject.setHasFixedHeight(true);
+        }
+        
         // Add cyan highlight for the focused layer
         const focusedRect = getAbsoluteRect(focusedLayer, originalArtboard);
-        new sketch.Shape({
-            parent: measurementsGroup,
-            frame: new sketch.Rectangle(focusedRect.x - 2, focusedRect.y - 2, focusedRect.width + 4, focusedRect.height + 4),
+        // Use coordinates directly since duplicated content is at (0,0) in new artboard
+        const highlightX = focusedRect.x;
+        const highlightY = focusedRect.y;
+        const highlightShape = new sketch.Shape({
+            parent: spacingArtboard, // Use artboard as parent instead of measurementsGroup
+            frame: new sketch.Rectangle(highlightX - 2, highlightY - 2, focusedRect.width + 4, focusedRect.height + 4),
             style: {
                 fills: [{ color: '#00D4FF66', fillType: sketch.Style.FillType.Color, enabled: true }], // Cyan with opacity
                 borders: [{ color: '#00D4FF', thickness: 2, enabled: true }],
             },
         });
         
-        const directionalSpacing = drawDirectionalSpacing(measurementsGroup, focusedLayer, allLayers, originalArtboard);
+        // Move to front to ensure visibility
+        highlightShape.moveToFront();
+        
+        // Find parent stack for sibling spacing analysis
+        const parentStack = findParentStack(focusedLayer);
+        
+        console.log(`=== SIBLING SPACING DEBUG ===`);
+        console.log(`Focused layer: ${focusedLayer.name} (${focusedLayer.type})`);
+        console.log(`Parent stack found: ${parentStack ? parentStack.name : 'None'}`);
+        
+        if (parentStack) {
+            console.log(`Parent stack type: ${parentStack.type}`);
+            console.log(`Parent stack children count: ${parentStack.layers ? parentStack.layers.length : 0}`);
+            
+            // Draw sibling spacing measurements (green lines)
+            siblingInfo = drawSiblingSpacing(measurementsGroup, focusedLayer, parentStack, originalArtboard);
+            console.log(`Sibling info calculated:`, siblingInfo ? 'Yes' : 'No');
+            
+            // Add the parent stack to our stack layers list if not already there
+            if (!stackLayers.includes(parentStack)) {
+                stackLayers.push(parentStack);
+            }
+        } else {
+            console.log(`No parent stack - checking if focused layer itself is a stack`);
+            if (isStackLayer(focusedLayer)) {
+                console.log(`Focused layer IS a stack - using directional spacing`);
+            }
+            // Draw regular directional spacing measurements (red/purple lines)
+            const directionalSpacing = drawDirectionalSpacing(measurementsGroup, focusedLayer, allLayers, originalArtboard);
+        }
         
         // Generate developer specs
         const specs = generateFocusedLayerSpecs(focusedLayer, allLayers, originalArtboard);
@@ -763,7 +1274,7 @@ function createLayoutSpacingSpecs(originalArtboard, focusedLayer = null) {
     const showPanel = stackLayers.length > 0 || debugMode;
     
     if (showPanel) {
-        drawStackSpecificationsPanel(spacingArtboard, stackLayers, originalArtboard, debugMode, focusedLayer);
+        drawStackSpecificationsPanel(spacingArtboard, stackLayers, originalArtboard, debugMode, focusedLayer, siblingInfo);
     }
     
     return spacingArtboard;
@@ -773,5 +1284,9 @@ module.exports = {
     createLayoutSpacingSpecs,
     getVisibleLayersInOrder,
     isStackLayer,
-    getStackProperties
+    getStackProperties,
+    findParentStack,
+    getStackSiblings,
+    calculateSiblingSpacing,
+    drawSiblingSpacing
 }; 
