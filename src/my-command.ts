@@ -12,15 +12,22 @@ function rgbaToHex(rgba: any): string {
 
 // Helper function to get a layer's absolute position using modern Sketch API, safely traversing parent chain
 function getAbsoluteRect(layer: any, artboard: any): any {
-  let currentLayer = layer;
-  let absoluteX = layer.frame.x;
-  let absoluteY = layer.frame.y;
-  
   // Safety check for layer frame
   if (!layer.frame || typeof layer.frame.x !== 'number' || typeof layer.frame.y !== 'number') {
     console.log(`Warning: Layer ${layer.name} has invalid frame, using fallback`);
     return new sketch.Rectangle(0, 0, 100, 100);
   }
+  
+  // Special handling for virtual layers from Symbol Instances
+  if (layer._isSymbolInstanceLayer) {
+    // Virtual layers already have coordinates mapped to the artboard space
+    return new sketch.Rectangle(layer.frame.x, layer.frame.y, layer.frame.width, layer.frame.height);
+  }
+  
+  // Regular layer handling with parent chain traversal
+  let currentLayer = layer;
+  let absoluteX = layer.frame.x;
+  let absoluteY = layer.frame.y;
   
   while (
     currentLayer.parent &&
@@ -164,7 +171,10 @@ function getAllLayers(layerContainer: any): any[] {
     layerContainer.layers.forEach((layer: any) => {
       if (!layer.name.startsWith('#meaxure')) {
         layers.push(layer);
-        if (layer.type === sketch.Types.Group || layer.type === sketch.Types.Artboard) {
+        if (layer.type === sketch.Types.Group || 
+            layer.type === sketch.Types.Artboard ||
+            layer.type === 'SymbolMaster' ||
+            layer.type === 'SymbolInstance') {
           layers = layers.concat(getAllLayers(layer));
         }
       }
@@ -353,15 +363,20 @@ export default function(): void {
       const reversedLayers = Array.from(container.layers).reverse();
       
       reversedLayers.forEach((layer: any) => {
-        // Skip hidden layers and meaxure annotations
+                // Skip hidden layers and meaxure annotations
         if (!layer.hidden && !layer.name.startsWith('#meaxure')) {
           layers.push(layer);
           
-          // Recursively get nested layers
-          if (layer.type === sketch.Types.Group || 
-              layer.type === sketch.Types.Artboard ||
-              layer.type === 'Frame' ||
-              layer.type === 'SymbolInstance') {
+          // Special handling for Symbol Instances - get their master's layers
+          if (layer.type === 'SymbolInstance') {
+            const symbolMasterLayers = getSymbolInstanceLayers(layer);
+            layers = layers.concat(symbolMasterLayers);
+          }
+          // Recursively get nested layers for other types
+          else if (layer.type === sketch.Types.Group || 
+                   layer.type === sketch.Types.Artboard ||
+                   layer.type === 'Frame' ||
+                   layer.type === 'SymbolMaster') {
             layers = layers.concat(getVisibleLayersInOrder(layer));
           }
         }
@@ -369,6 +384,75 @@ export default function(): void {
     }
     
     return layers;
+  }
+
+  // Helper function to get Symbol Master layers mapped to Symbol Instance coordinates
+  function getSymbolInstanceLayers(symbolInstance: any): any[] {
+    let mappedLayers: any[] = [];
+    
+    try {
+      // Get the Symbol Master from the instance - try multiple approaches
+      let symbolMaster = symbolInstance.symbolMaster;
+      
+      // If symbolMaster doesn't exist, try the 'master' property
+      if (!symbolMaster && symbolInstance.master) {
+        symbolMaster = symbolInstance.master;
+      }
+      
+      if (!symbolMaster) {
+        return mappedLayers;
+      }
+      
+      if (!symbolMaster.layers) {
+        return mappedLayers;
+      }
+      
+      // Get all layers from the Symbol Master
+      const masterLayers = getVisibleLayersInOrder(symbolMaster);
+      
+      // Map each master layer to the instance's coordinate space
+      masterLayers.forEach((masterLayer: any, index: number) => {
+        if (!masterLayer.hidden && !masterLayer.name.startsWith('#meaxure')) {
+          // Create a virtual layer that represents this master layer in the instance
+          // Calculate absolute position by traversing the symbol instance's parent chain
+          let symbolAbsoluteX = symbolInstance.frame.x;
+          let symbolAbsoluteY = symbolInstance.frame.y;
+          
+          // Traverse parent chain to get absolute coordinates
+          let currentParent = symbolInstance.parent;
+          while (currentParent && currentParent !== originalArtboard && currentParent.frame) {
+            symbolAbsoluteX += currentParent.frame.x;
+            symbolAbsoluteY += currentParent.frame.y;
+            currentParent = currentParent.parent;
+          }
+          
+          // Only copy essential properties to avoid issues with Sketch objects
+          const virtualLayer = {
+            name: masterLayer.name,
+            type: masterLayer.type,
+            frame: {
+              x: symbolAbsoluteX + masterLayer.frame.x,
+              y: symbolAbsoluteY + masterLayer.frame.y,
+              width: masterLayer.frame.width,
+              height: masterLayer.frame.height
+            },
+            style: masterLayer.style,
+            hidden: masterLayer.hidden,
+            // Mark it as a virtual layer from a symbol for identification
+            _isSymbolInstanceLayer: true,
+            _parentSymbolInstance: symbolInstance,
+            _originalMasterLayer: masterLayer
+          };
+          
+          mappedLayers.push(virtualLayer);
+        }
+      });
+      
+    } catch (error: any) {
+      console.log(`Warning: Could not access Symbol Master layers for ${symbolInstance.name}:`, error);
+    }
+    
+    return mappedLayers;
   }
 
   // Get all layers in proper order
@@ -392,9 +476,9 @@ export default function(): void {
     name: `Anatomy: ${originalArtboard.name}`,
     parent: page,
     frame: new sketch.Rectangle(
-      originalArtboard.frame.x + originalArtboard.frame.width + artboardSpacing,
-      originalArtboard.frame.y,
-      anatomyArtboardWidth,
+      originalArtboard.frame.x + originalArtboard.frame.width + artboardSpacing, 
+      originalArtboard.frame.y, 
+      anatomyArtboardWidth, 
       anatomyArtboardHeight
     ),
   });
@@ -456,20 +540,21 @@ export default function(): void {
   // --- Create highlights and panel entries for each layer ---
   let panelY = panelHeaderHeight;
   
-  orderedLayers.forEach((layer: any, index: number) => {
-    const layerNumber = index + 1;
-    const rect = getAbsoluteRect(layer, originalArtboard);
-    
-    // --- Create highlight overlay ---
-    const highlightGroup = new Group({
-      name: `Highlight-${layerNumber}`,
-      parent: anatomyArtboard,
-    });
+      orderedLayers.forEach((layer: any, index: number) => {
+      const layerNumber = index + 1;
+      const rect = getAbsoluteRect(layer, originalArtboard);
+      
+      // --- Create highlight overlay ---
+      const highlightGroup = new Group({
+        name: `Highlight-${layerNumber}`,
+        parent: anatomyArtboard,
+      });
 
-    // Calculate position relative to the duplicated content (which starts at 0,0)
-    // Subtract the original artboard position to get relative coordinates
-    const relativeX = rect.x - originalArtboard.frame.x;
-    const relativeY = rect.y - originalArtboard.frame.y;
+            // Calculate position relative to the duplicated content (which starts at 0,0)
+        // Both regular and virtual layers return absolute coordinates from getAbsoluteRect
+        // So we always subtract the original artboard position to get relative coordinates
+        const relativeX = rect.x - originalArtboard.frame.x;
+        const relativeY = rect.y - originalArtboard.frame.y;
 
     // Ensure minimum size for tiny elements
     let highlightWidth = Math.max(rect.width, minHighlightSize);
@@ -530,9 +615,9 @@ export default function(): void {
     });
 
     // Move highlight group to front and ensure it's visible
-    (highlightGroup as any).moveToFront();
-    (highlightGroup as any).locked = false;
-    (highlightGroup as any).hidden = false;
+    highlightGroup.moveToFront();
+    highlightGroup.locked = false;
+    highlightGroup.hidden = false;
 
     // --- Create panel entry ---
     const entryY = panelY + (index * (panelItemHeight + panelItemSpacing));
@@ -581,7 +666,16 @@ export default function(): void {
     });
 
     // Layer type and dimensions
-    const typeLabel = layer.type.replace('MSLayer', '').replace('Group', 'Group');
+    let typeLabel = layer.type.replace('MSLayer', '').replace('Group', 'Group');
+    if (layer.type === 'SymbolInstance') {
+      typeLabel = 'Symbol Instance';
+    } else if (layer.type === 'SymbolMaster') {
+      typeLabel = 'Symbol Master';
+    } else if (layer._isSymbolInstanceLayer) {
+      // This is a virtual layer from a Symbol Instance
+      const originalType = layer._originalMasterLayer.type.replace('MSLayer', '').replace('Group', 'Group');
+      typeLabel = `${originalType} (in Symbol)`;
+    }
     const dimensions = `${Math.round(rect.width)} × ${Math.round(rect.height)}`;
     
     new sketch.Text({
@@ -703,7 +797,7 @@ export default function(): void {
     }
 
     // Add specifications based on layer type
-    if (layer.type === sketch.Types.Text) {
+    if (layer.type === sketch.Types.Text || (layer._isSymbolInstanceLayer && layer._originalMasterLayer.type === sketch.Types.Text)) {
       // Text-specific properties
       const textStyle = layer.style || {};
       const fontFamily = textStyle.fontFamily || layer.fontFamily || 'Unknown';
@@ -781,6 +875,55 @@ export default function(): void {
       addSpecLine('Line Height', `${lineHeight}`, specLineHeight * 4);
       addSpecLine('Align', textAlign, specLineHeight * 5);
       if (opacity !== '100%') addSpecLine('Opacity', opacity, specLineHeight * 6);
+    } else if (layer._isSymbolInstanceLayer) {
+      // Virtual layer from Symbol Instance - show original layer info + symbol context
+      const originalLayer = layer._originalMasterLayer;
+      const parentSymbol = layer._parentSymbolInstance;
+      
+      addSpecLine('Source', `${originalLayer.type} in Symbol`, 0);
+      addSpecLine('Symbol', parentSymbol.name, specLineHeight);
+      addSpecLine('Layer Name', originalLayer.name, specLineHeight * 2);
+      
+      // Show standard layer properties
+      if (backgroundColor !== 'None') {
+        addSpecLine('Background', backgroundColor, specLineHeight * 3);
+      }
+      if (borderColor !== 'None') {
+        addSpecLine('Border', `${borderWidth} ${borderColor}`, specLineHeight * 4);
+        addSpecLine('Radius', borderRadius, specLineHeight * 5);
+      } else if (borderRadius !== '0px') {
+        addSpecLine('Radius', borderRadius, specLineHeight * 4);
+      }
+      if (opacity !== '100%') addSpecLine('Opacity', opacity, specLineHeight * 6);
+    } else if (layer.type === 'SymbolInstance' || layer.type === 'SymbolMaster') {
+      // Symbol-specific properties
+      const symbolType = layer.type === 'SymbolInstance' ? 'Instance' : 'Master';
+      addSpecLine('Type', symbolType, 0);
+      
+      // For Symbol Instances, show master information
+      if (layer.type === 'SymbolInstance') {
+        const masterName = layer.symbolMaster ? layer.symbolMaster.name : 'Unknown';
+        const symbolId = layer.symbolId || 'Unknown';
+        addSpecLine('Master', masterName, specLineHeight);
+        addSpecLine('Symbol ID', symbolId, specLineHeight * 2);
+        
+        // Check for overrides
+        let overrideCount = 0;
+        if (layer.overrides && Array.isArray(layer.overrides)) {
+          overrideCount = layer.overrides.filter((override: any) => !override.isDefault).length;
+        }
+        addSpecLine('Overrides', `${overrideCount} active`, specLineHeight * 3);
+        
+        if (opacity !== '100%') addSpecLine('Opacity', opacity, specLineHeight * 4);
+      } else {
+        // For Symbol Masters, show usage information
+        addSpecLine('Master Name', layer.name, specLineHeight);
+        
+        // Symbol Master properties
+        const masterSymbolId = layer.symbolId || 'Unknown';
+        addSpecLine('Symbol ID', masterSymbolId, specLineHeight * 2);
+        if (opacity !== '100%') addSpecLine('Opacity', opacity, specLineHeight * 3);
+      }
     } else {
       // Shape/Group properties
       addSpecLine('Background', backgroundColor, 0);
@@ -796,8 +939,8 @@ export default function(): void {
   });
 
   // Clean up any temporary data
-  if (globalThis._badgePositions) {
-    delete globalThis._badgePositions;
+  if ((globalThis as any)._badgePositions) {
+    delete (globalThis as any)._badgePositions;
   }
 
   // Select the new anatomy artboard

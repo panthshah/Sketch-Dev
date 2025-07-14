@@ -4,15 +4,21 @@
   "version": "0.2.0",
   "commands": [
     {
-      "name": "Generate Specs",
-      "identifier": "sketch-spec-generator.generate-specs",
-      "script": "./my-command.js"
+      "name": "Generate Anatomy",
+      "identifier": "sketch-spec-generator.generate-anatomy",
+      "script": "./anatomy-command.js"
+    },
+    {
+      "name": "Generate Layout & Spacing",
+      "identifier": "sketch-spec-generator.generate-layout-spacing",
+      "script": "./layout-spacing-command.js"
     }
   ],
   "menu": {
     "title": "sketch-spec-generator",
     "items": [
-      "sketch-spec-generator.generate-specs"
+      "sketch-spec-generator.generate-anatomy",
+      "sketch-spec-generator.generate-layout-spacing"
     ]
   }
 }
