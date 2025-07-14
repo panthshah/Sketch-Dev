@@ -1,12 +1,50 @@
-# sketch-spec-generator
+# Sketch Spec Generator
 
-## Installation
+A powerful Sketch plugin that generates comprehensive design specifications including layer anatomy, spacing measurements, and Stack Layout analysis with sibling spacing detection.
 
-- [Download](../../releases/latest/download/sketch-spec-generator.sketchplugin.zip) the latest release of the plugin
-- Un-zip
-- Double-click on sketch-spec-generator.sketchplugin
+## ✨ Features
 
-## Development Guide
+- **Layer Anatomy**: Generate detailed specifications for all layers with styling information
+- **Smart Spacing Analysis**: Measure spacing between layers and to artboard edges  
+- **Stack Layout Support**: Advanced analysis of Sketch Stack Layouts with:
+  - Sibling spacing measurements between child elements
+  - Directional spacing to nearest layers/edges
+  - Visual green lines showing spacing between siblings
+  - Comprehensive specifications panel
+- **Professional Output**: Clean, organized specification artboards with visual highlights
+
+## 🚀 Quick Installation
+
+### Option 1: Direct Download (Recommended)
+1. **[Download Latest Plugin](https://github.com/panthshah/Sketch-Dev/raw/cursor/provide-project-context-bfbf/sketch-spec-generator-v4.sketchplugin.zip)** (`sketch-spec-generator-v4.sketchplugin.zip`)
+2. **Unzip** the downloaded file
+3. **Double-click** `sketch-spec-generator.sketchplugin` to install
+4. The plugin will appear in **Plugins > Sketch Spec Generator** menu
+
+### Option 2: GitHub Releases
+- Go to [Releases](../../releases) and download the latest version
+- Follow the same unzip and double-click process
+
+## 📋 How to Use
+
+### Layer Anatomy
+1. Select any **artboard** in Sketch
+2. Go to **Plugins > Sketch Spec Generator > Generate Anatomy**
+3. A new artboard will be created with detailed layer specifications
+
+### Spacing Analysis
+1. Select any **layer** (not artboard) in Sketch  
+2. Go to **Plugins > Sketch Spec Generator > Generate Spacing**
+3. View spacing measurements and Stack Layout analysis
+
+### Sibling Spacing (New!)
+- When you select a layer **inside a Stack Layout**, the plugin automatically detects and shows:
+  - 🟢 **Green lines** showing spacing between sibling elements
+  - 🔵 **Cyan highlight** on the selected layer
+  - 📊 **Specifications panel** with detailed Stack Layout information
+  - Position context (e.g., "Position: 2 of 4 in stack")
+
+## �� Development Guide
 
 _This plugin was created using `skpm`. For a detailed explanation on how things work, checkout the [skpm Readme](https://github.com/skpm/skpm/blob/master/README.md)._
 
