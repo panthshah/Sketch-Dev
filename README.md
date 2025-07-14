@@ -15,15 +15,26 @@ A powerful Sketch plugin that generates comprehensive design specifications incl
 
 ## 🚀 Quick Installation
 
-### Option 1: Direct Download (Recommended)
-1. **[Download Latest Plugin](https://github.com/panthshah/Sketch-Dev/raw/cursor/provide-project-context-bfbf/sketch-spec-generator-v4.sketchplugin.zip)** (`sketch-spec-generator-v4.sketchplugin.zip`)
+### Option 1: Repository Download (Recommended)
+1. **[Download Repository](https://github.com/panthshah/Sketch-Dev/archive/refs/heads/cursor/provide-project-context-bfbf.zip)** (includes latest v4 plugin)
 2. **Unzip** the downloaded file
-3. **Double-click** `sketch-spec-generator.sketchplugin` to install
-4. The plugin will appear in **Plugins > Sketch Spec Generator** menu
+3. **Navigate to** `sketch-spec-generator` folder
+4. **Find** `sketch-spec-generator-v4.sketchplugin.zip` and unzip it
+5. **Double-click** `sketch-spec-generator.sketchplugin` to install
+6. The plugin will appear in **Plugins > Sketch Spec Generator** menu
 
-### Option 2: GitHub Releases
-- Go to [Releases](../../releases) and download the latest version
-- Follow the same unzip and double-click process
+### Option 2: Direct Plugin File
+1. Go to [GitHub Repository](https://github.com/panthshah/Sketch-Dev/tree/cursor/provide-project-context-bfbf)
+2. **Click** on `sketch-spec-generator-v4.sketchplugin.zip`
+3. **Click** "Download" button
+4. **Unzip** and **double-click** `sketch-spec-generator.sketchplugin` to install
+
+### Option 3: Clone Repository (For Developers)
+```bash
+git clone https://github.com/panthshah/Sketch-Dev.git
+cd Sketch-Dev
+# Plugin file is at: sketch-spec-generator-v4.sketchplugin.zip
+```
 
 ## 📋 How to Use
 
